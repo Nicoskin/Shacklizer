@@ -21,9 +21,21 @@ const H264 = (() => {
      ограничен сверху и в конце доводится до 100%. */
   const CORE_BYTES = 32232419;
 
+  /* ffmpeg.wasm течёт между вызовами exec: после нескольких тяжёлых
+     прогонов куча переполняется, воркер падает с «memory access out of
+     bounds», и инстанс уже не восстановить. Лечится только новым
+     инстансом — благо ядро уже скачано, и подъём занимает около секунды.
+     Поэтому считаем, сколько байт прошло через декодер, и переподнимаем
+     инстанс заранее; а если всё же упали — поднимаем и повторяем. */
+  const RECYCLE_BYTES = 48 * 1024 * 1024;
+  const FRAME_BUDGET = 10 * 1024 * 1024;   // сколько памяти отдаём под кадры
+
   let ff = null;
   let loading = null;
+  let urls = null;        // blob-URL скачанного ядра, переиспользуем при переподъёме
+  let usedBytes = 0;
   let logTail = [];
+  let onNotice = null;   // чем сообщить интерфейсу о паузе на переподъём
 
   const supported = () => typeof FFmpegWASM !== 'undefined' && typeof WebAssembly !== 'undefined';
 
@@ -50,20 +62,33 @@ const H264 = (() => {
     return URL.createObjectURL(new Blob(chunks, { type }));
   }
 
+  /* Поднять инстанс из уже скачанного ядра. */
+  async function boot() {
+    const { FFmpeg } = FFmpegWASM;
+    const inst = new FFmpeg();
+    inst.on('log', ({ message }) => {
+      logTail.push(message);
+      if (logTail.length > 60) logTail.shift();
+    });
+    await inst.load({ coreURL: urls.core, wasmURL: urls.wasm });
+    usedBytes = 0;
+    return inst;
+  }
+
+  async function recycle() {
+    if (onNotice) onNotice('Перезапускаем кодек…');
+    try { ff && ff.terminate(); } catch { /* уже мёртв — и ладно */ }
+    ff = await boot();
+  }
+
   function load(onProgress) {
     if (loading) return loading;
     loading = (async () => {
-      const { FFmpeg } = FFmpegWASM;
-      ff = new FFmpeg();
-      ff.on('log', ({ message }) => {
-        logTail.push(message);
-        if (logTail.length > 60) logTail.shift();
-      });
-      const [coreURL, wasmURL] = [
-        await toBlobURL(`${CORE}/ffmpeg-core.js`, 'text/javascript'),
-        await toBlobURL(`${CORE}/ffmpeg-core.wasm`, 'application/wasm', onProgress),
-      ];
-      await ff.load({ coreURL, wasmURL });
+      urls = {
+        core: await toBlobURL(`${CORE}/ffmpeg-core.js`, 'text/javascript'),
+        wasm: await toBlobURL(`${CORE}/ffmpeg-core.wasm`, 'application/wasm', onProgress),
+      };
+      ff = await boot();
       return ff;
     })();
     loading.catch(() => { loading = null; });
@@ -172,6 +197,22 @@ const H264 = (() => {
   async function render(srcCanvas, prm) {
     if (!ff) throw new Error('кодек ещё не загружен');
 
+    if (usedBytes > RECYCLE_BYTES) await recycle();
+    try {
+      return await pass(srcCanvas, prm);
+    } catch (first) {
+      // Скорее всего кончилась куча — инстанс мёртв, поднимаем новый.
+      await recycle();
+      try {
+        return await pass(srcCanvas, prm);
+      } catch (second) {
+        const msg = (second && second.message) || (first && first.message);
+        throw new Error(msg || 'кодек не справился с этими настройками');
+      }
+    }
+  }
+
+  async function pass(srcCanvas, prm) {
     const ow = srcCanvas.width, oh = srcCanvas.height;
     const even = v => Math.max(64, Math.round(v / 2) * 2);
     const w = even(prm.width);
@@ -230,11 +271,15 @@ const H264 = (() => {
     const total = (await ff.readFile('count.raw')).length / 64;
     if (!total) throw new Error('декодер не выдал кадров — уменьшите потери');
 
-    const start = Math.max(0, Math.floor(total) - KEEP_FRAMES);
+    // Крупный кадр — держим меньше кадров: сырое rgba съедает память быстро.
+    const frameSize = w * h * 4;
+    const keep = Math.max(2, Math.min(KEEP_FRAMES, Math.floor(FRAME_BUDGET / frameSize)));
+
+    const start = Math.max(0, Math.floor(total) - keep);
     await ff.exec([...DECODE, '-vf', `trim=start_frame=${start}`,
       '-f', 'rawvideo', '-pix_fmt', 'rgba', 'out.raw']);
     const rawOut = await ff.readFile('out.raw');
-    const frameSize = w * h * 4;
+    usedBytes += rawOut.length;
     const count = Math.floor(rawOut.length / frameSize);
     if (!count) throw new Error('декодер не выдал кадров — уменьшите потери');
 
@@ -280,5 +325,9 @@ const H264 = (() => {
     };
   }
 
-  return { supported, load, render, isReady: () => !!ff };
+  return {
+    supported, load, render,
+    isReady: () => !!ff,
+    setNotice: fn => { onNotice = fn; },
+  };
 })();

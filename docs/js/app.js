@@ -341,6 +341,8 @@ for (const name of Object.keys(PRESETS)) {
 if (REPO === 'https://github.com/') el.gh.style.display = 'none';
 else el.gh.href = REPO;
 
+H264.setNotice(msg => status(msg, 'busy'));
+
 if (!H264.supported()) {
   el.engH264.disabled = true;
   state.engine = 'sim';
