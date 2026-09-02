@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Шакалайзер — потеря пакетов на видеосвязи</title>
+<meta name="description" content="Портит фотографии так, будто они приехали по видеосвязи через дырявый канал: настоящий H.264 с выброшенными пакетами, прямо в браузере.">
+<meta property="og:title" content="Шакалайзер">
+<meta property="og:description" content="Фото, пережившее плохую видеосвязь. Настоящий H.264 с потерей пакетов, всё считается в браузере.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230b0c0f'/><rect x='4' y='7' width='24' height='4' fill='%23e9ebf2'/><rect x='4' y='14' width='13' height='4' fill='%23ff3d6e'/><rect x='19' y='14' width='9' height='4' fill='%232fdfc4'/><rect x='4' y='21' width='19' height='4' fill='%23868da0'/></svg>">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header>
+    <svg class="mark" width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="7" fill="#14161d" stroke="#262a35"/>
+      <rect x="6" y="8" width="20" height="3.4" rx="1" fill="#e9ebf2"/>
+      <rect x="6" y="14.3" width="11" height="3.4" rx="1" fill="#ff3d6e"/>
+      <rect x="19" y="14.3" width="7" height="3.4" rx="1" fill="#2fdfc4"/>
+      <rect x="6" y="20.6" width="16" height="3.4" rx="1" fill="#868da0"/>
+    </svg>
+    <div class="brand">
+      <h1>Шакалайзер</h1>
+      <p>Фотография, пережившая плохую видеосвязь</p>
+    </div>
+    <div class="spacer"></div>
+    <a class="ghlink" id="gh" href="#" target="_blank" rel="noopener">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      GitHub
+    </a>
+  </header>
+
+  <main>
+    <div class="stage-wrap">
+      <div class="stage" id="stage">
+        <canvas id="view" class="hidden"></canvas>
+        <div class="empty" id="empty">
+          <strong>Перетащите фотографию сюда</strong>
+          или нажмите «Открыть», или вставьте из буфера <kbd>Ctrl</kbd>&nbsp;<kbd>V</kbd>
+        </div>
+        <div class="badge" id="badge">ОРИГИНАЛ</div>
+      </div>
+
+      <div class="readout">
+        <canvas class="packets" id="packets" title="Каждая полоска — пакет. Красные не доехали."></canvas>
+        <div class="stats" id="stats"></div>
+      </div>
+    </div>
+
+    <aside class="panel">
+
+      <div class="block">
+        <h2>Источник</h2>
+        <div class="row">
+          <button class="btn" id="open">Открыть…</button>
+          <button class="btn" id="pasteBtn">Из буфера</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="reroll" disabled>Новый бросок</button>
+          <button class="btn primary" id="save" disabled>Скачать</button>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="block">
+        <h2>Движок</h2>
+        <div class="seg" role="group">
+          <button id="eng-h264" aria-pressed="true">Настоящий H.264</button>
+          <button id="eng-sim" aria-pressed="false">Симуляция</button>
+        </div>
+        <p class="engine-note" id="engineNote"></p>
+      </div>
+
+      <div class="block">
+        <h2>Пресет</h2>
+        <div class="chips" id="presets"></div>
+      </div>
+
+      <div class="block" id="controls"></div>
+
+    </aside>
+  </main>
+
+  <footer>
+    <span class="dot" id="dot"></span>
+    <span id="status">Готов к работе</span>
+    <span class="spacer"></span>
+    <span id="hint">Зажмите картинку — покажет оригинал</span>
+  </footer>
+
+</div>
+
+<div class="drop" id="drop"><div>Отпускайте</div></div>
+
+<div class="loader" id="loader">
+  <div class="box">
+    <h3>Качаем видеокодек</h3>
+    <p>Настоящий H.264 весит 32 МБ и работает прямо в браузере. Один раз — дальше из кэша.</p>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="pct" id="barPct">0%</div>
+  </div>
+</div>
+
+<script src="./vendor/ffmpeg.js"></script>
+<script src="./js/presets.js"></script>
+<script src="./js/sim.js"></script>
+<script src="./js/h264.js"></script>
+<script src="./js/app.js"></script>
+</body>
+</html>
