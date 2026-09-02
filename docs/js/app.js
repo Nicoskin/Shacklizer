@@ -2,7 +2,7 @@
 
 (() => {
 
-const REPO = 'https://github.com/';   // подставляется при публикации
+const REPO = 'https://github.com/Nicoskin/Shacklizer';
 const MAX_SIDE = 2000;                // больше нет смысла: это всё равно шакал
 
 const $ = id => document.getElementById(id);
